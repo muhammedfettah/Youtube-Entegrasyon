@@ -1,33 +1,37 @@
 import os
-import io
 import requests
 import json
-import textwrap
 import telegram
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from google import genai
 from google.genai.errors import APIError
-# moviepy importları şu an için devre dışı bırakıldı!
+
+# --- HATA RİSKİ YÜKSEK OLAN KISIM DEVRE DIŞI ---
+# MoviePy kütüphanesi, kurulum (pip install) sorunları ve FFMPEG bağımlılığı nedeniyle
+# şu an için yorum satırındadır. Çalıştığı onaylandıktan sonra bu satırı açacağız.
 # from moviepy.editor import ImageClip, TextClip, CompositeVideoClip, AudioFileClip, ColorClip 
 
 # --- 1. AYARLAR VE API İSTEMCİLERİ ---
 
+# Railway'deki Environment Variables'dan okunur
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN") 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") 
 
 if not TELEGRAM_BOT_TOKEN or not GEMINI_API_KEY:
-    print("HATA: TELEGRAM_BOT_TOKEN ve GEMINI_API_KEY ortam değişkenlerinden okunmalıdır.")
-    
+    # Bu uyarı, Railway'de görünmez, sadece lokalde görünür.
+    print("HATA: TELEGRAM_BOT_TOKEN veya GEMINI_API_KEY ortam değişkenlerinden okunmadı.")
+
 try:
     client = genai.Client(api_key=GEMINI_API_KEY)
 except Exception as e:
+    # API anahtarı geçersizse burası çalışır.
     print(f"Gemini Client başlatma hatası: {e}")
     client = None
 
 TEXT_MODEL = "gemini-2.5-flash" 
-# HATA DÜZELTMESİ: Daha stabil ve erişilebilir bir görsel modeline geçildi.
+# HATA DÜZELTMESİ: Stabil ve erişilebilir model
 IMAGE_MODEL = "imagen-2.0-generate-002" 
-TEMP_DURATION = 20 # Video süresi (saniye)
+TEMP_DURATION = 20 
 
 # --- 2. YARDIMCI İŞLEVLER ---
 
@@ -47,7 +51,7 @@ def cleanup_files(*files):
             os.remove(f)
 
 # --- 3. VİDEO MONTAJ İŞLEVİ (GEÇİCİ YER TUTUCU) ---
-
+# MoviePy kodu devre dışı olduğu için bu fonksiyon sadece yer tutar.
 def create_final_video(image_path, script_text, title):
     """MoviePy'den kaynaklanan hataları test etmek için geçici yer tutucu."""
     print("--- MoviePy Geçici Olarak Atlandı ---")
@@ -59,7 +63,7 @@ async def generate_and_process_video(update, context, video_idea):
     """Tüm süreci yöneten ana fonksiyon."""
     
     if not client:
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ HATA: Gemini API Anahtarı eksik. Lütfen Railway'de 'GEMINI_API_KEY' değişkenini ayarlayın.")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ HATA: Gemini API Anahtarı eksik veya geçersiz.")
         return
         
     chat_id = update.effective_chat.id
@@ -71,7 +75,6 @@ async def generate_and_process_video(update, context, video_idea):
         # AŞAMA 1: SENARYO VE GÖRSEL TALİMATI ÜRETİMİ (Gemini)
         await context.bot.send_message(chat_id=chat_id, text="📝 Senaryo ve görsel talimatları üretiliyor...")
         
-        # JSON formatında çıktı isteme
         system_instruction = ("Tüm çıktılarını aşağıdaki formatta, SADECE JSON olarak ver. Ek metin EKLEME.")
         prompt = f"Video fikri: {video_idea}"
         
@@ -89,6 +92,11 @@ async def generate_and_process_video(update, context, video_idea):
                 }
             }
         ).send_message(message=prompt)
+
+        # HATA KORUMASI: Gemini'den boş (None) cevap gelmesi durumunda botun çökmesini engeller.
+        if not response.text:
+            await context.bot.send_message(chat_id=chat_id, text="❌ Gemini'dan boş veya engellenmiş cevap geldi. Lütfen daha genel ve güvenli bir fikir deneyin.")
+            return
 
         data = json.loads(response.text)
         image_prompt, script, youtube_title = data["image_prompt"], data["script"], data["youtube_title"]
@@ -108,28 +116,26 @@ async def generate_and_process_video(update, context, video_idea):
         if not temp_image_path:
             raise Exception("Görsel indirme başarısız.")
 
-        # AŞAMA 2: VİDEO MONTAJI (MoviePy yerine geçici fonksiyon çağrıldı)
+        # AŞAMA 2: VİDEO MONTAJI (Atlanıyor)
         await context.bot.send_message(chat_id=chat_id, text="🎬 Video montajı adımı şimdilik atlanıyor...")
-        
         temp_video_path = create_final_video(temp_image_path, script, youtube_title)
 
         # AŞAMA 3: TELEGRAM'A BİLDİRİM GÖNDERME
         await context.bot.send_message(chat_id=chat_id, text="✅ Video İçeriği Hazırlandı! Telegram üzerinden sonuç bildiriliyor...")
         
-        # Sadece Metin Gönderme (Video Dosyası yerine)
+        # Sadece Metin Gönderme
         await context.bot.send_message(
             chat_id=chat_id,
-            text=f"🎥 **{youtube_title}**\n\n**Senaryo:** {script[:150]}...\n\n✅ BOT BAŞARIYLA ÇALIŞIYOR. MoviePy kurulumunu çözdükten sonra video gelecektir!",
+            text=f"🎥 **{youtube_title}**\n\n**Senaryo:** {script[:150]}...\n\n✅ BOT ŞU AN ÇALIŞIYOR. Lütfen güvenli ve yaratıcı bir fikirle deneyin.",
             parse_mode=telegram.constants.ParseMode.MARKDOWN
         )
         
     except APIError as e:
-        await context.bot.send_message(chat_id=chat_id, text=f"❌ API Hatası (Gemini): Anahtarınızı kontrol edin veya görsel model adını kontrol edin. Hata: {e}")
+        await context.bot.send_message(chat_id=chat_id, text=f"❌ API Hatası (Gemini): Anahtarınızı veya model adını kontrol edin. Hata: {e}")
     except Exception as e:
         await context.bot.send_message(chat_id=chat_id, text=f"❌ Genel İşlem Hatası: {e}")
         
     finally:
-        # Temizlik (Sadece Görseli siliyoruz)
         cleanup_files(temp_image_path) 
 
 
@@ -153,7 +159,6 @@ async def handle_message(update, context):
 
 def main():
     if not TELEGRAM_BOT_TOKEN:
-        print("HATA: TELEGRAM_BOT_TOKEN ortam değişkeni tanımlı değil.")
         return
         
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
