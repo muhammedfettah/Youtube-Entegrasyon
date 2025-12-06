@@ -7,7 +7,7 @@ import telegram
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from google import genai
 from google.genai.errors import APIError
-# moviepy importları geçici olarak devre dışı bırakıldı!
+# moviepy importları şu an için devre dışı bırakıldı!
 # from moviepy.editor import ImageClip, TextClip, CompositeVideoClip, AudioFileClip, ColorClip 
 
 # --- 1. AYARLAR VE API İSTEMCİLERİ ---
@@ -25,7 +25,8 @@ except Exception as e:
     client = None
 
 TEXT_MODEL = "gemini-2.5-flash" 
-IMAGE_MODEL = "imagen-3.0-generate-002" 
+# HATA DÜZELTMESİ: Daha stabil ve erişilebilir bir görsel modeline geçildi.
+IMAGE_MODEL = "imagen-2.0-generate-002" 
 TEMP_DURATION = 20 # Video süresi (saniye)
 
 # --- 2. YARDIMCI İŞLEVLER ---
@@ -50,7 +51,6 @@ def cleanup_files(*files):
 def create_final_video(image_path, script_text, title):
     """MoviePy'den kaynaklanan hataları test etmek için geçici yer tutucu."""
     print("--- MoviePy Geçici Olarak Atlandı ---")
-    # Video dosyası oluşturmuyoruz, sadece başarılı bir dosya yolu döndürüyoruz.
     return "temp_video_placeholder.mp4" 
 
 # --- 4. TELEGRAM İŞLEYİCİSİ (ANA İŞ AKIŞI) ---
@@ -124,13 +124,13 @@ async def generate_and_process_video(update, context, video_idea):
         )
         
     except APIError as e:
-        await context.bot.send_message(chat_id=chat_id, text=f"❌ API Hatası (Gemini): Anahtarınızı kontrol edin. Hata: {e}")
+        await context.bot.send_message(chat_id=chat_id, text=f"❌ API Hatası (Gemini): Anahtarınızı kontrol edin veya görsel model adını kontrol edin. Hata: {e}")
     except Exception as e:
         await context.bot.send_message(chat_id=chat_id, text=f"❌ Genel İşlem Hatası: {e}")
         
     finally:
         # Temizlik (Sadece Görseli siliyoruz)
-        cleanup_files(temp_image_path) # temp_video_path silinmez çünkü hiç oluşmadı.
+        cleanup_files(temp_image_path) 
 
 
 # --- 5. ANA FONKSİYON VE BAŞLATMA ---
