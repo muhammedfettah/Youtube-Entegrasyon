@@ -7,90 +7,28 @@ import telegram
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from google import genai
 from google.genai.errors import APIError
-from moviepy.editor import ImageClip, TextClip, CompositeVideoClip, AudioFileClip # Video montajı için
-# Not: moviepy kurulumunda ek olarak FFMPEG gereklidir. Railway bunu otomatik halleder.
+# moviepy importları geçici olarak devre dışı bırakıldı!
+# from moviepy.editor import ImageClip, TextClip, CompositeVideoClip, AudioFileClip, ColorClip 
 
-# --- 1. ORTAM DEĞİŞKENLERİNİ OKU ---
+# --- 1. AYARLAR VE API İSTEMCİLERİ ---
+
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN") 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") 
-# YOUTUBE_API_KEY ve diğerleri şu an kullanılmayacak, sadece tanımlı.
 
 if not TELEGRAM_BOT_TOKEN or not GEMINI_API_KEY:
-    # Konsola uyarı basar, ancak Railway'de bu değişkenler tanımlı olacağı için sorun olmaz.
-    print("UYARI: API Anahtarları ortam değişkenlerinden okunacak.")
-
-# Gemini ve Model Tanımları
+    print("HATA: TELEGRAM_BOT_TOKEN ve GEMINI_API_KEY ortam değişkenlerinden okunmalıdır.")
+    
 try:
     client = genai.Client(api_key=GEMINI_API_KEY)
-except:
-    client = None # Anahtar yoksa client'ı None olarak ayarlarız.
+except Exception as e:
+    print(f"Gemini Client başlatma hatası: {e}")
+    client = None
 
 TEXT_MODEL = "gemini-2.5-flash" 
 IMAGE_MODEL = "imagen-3.0-generate-002" 
-TEMP_DURATION = 20 # Saniye
+TEMP_DURATION = 20 # Video süresi (saniye)
 
-# --- 2. VİDEO MONTAJ İŞLEVİ (Aşama 2) ---
-
-def create_final_video(image_path, script_text, title):
-    """Görseli alt yazılı videoya dönüştürür."""
-    # Çıktı dosya adını Telegram'a göndermek için sadeleştiriyoruz
-    safe_title = title[:20].replace(' ', '_').replace('.', '').replace('/', '')
-    output_path = f"video_{safe_title}.mp4"
-    
-    try:
-        image_clip = ImageClip(image_path, duration=TEMP_DURATION)
-        
-        # Ken Burns Efekti (Hafif Zoom)
-        def zoom_in(t):
-            scale = 1 + 0.1 * t / TEMP_DURATION
-            return image_clip.get_frame(t) * scale
-        
-        zoomed_clip = image_clip.fl(zoom_in, apply_to=['mask']).set_duration(TEMP_DURATION)
-        
-        # Senaryoyu Alt Yazı Kliplerine Bölme
-        kelime_limit = 10 
-        tum_metin_parcalari = textwrap.wrap(script_text, kelime_limit)
-        parca_suresi = TEMP_DURATION / len(tum_metin_parcalari)
-
-        final_clips = []
-        current_time = 0
-
-        for metin in tum_metin_parcalari:
-            if not metin: continue
-            
-            txt_clip = TextClip(
-                metin, 
-                fontsize=50, 
-                color='white', 
-                stroke_color='#333333',
-                stroke_width=2,
-                font='Arial-Bold',
-                size=(zoomed_clip.w * 0.9, None),
-                align='center'
-            ).set_position(('center', zoomed_clip.h * 0.8)).set_duration(parca_suresi)
-            
-            txt_clip = txt_clip.set_start(current_time)
-            final_clips.append(txt_clip)
-            current_time += parca_suresi
-
-        final_video = CompositeVideoClip([zoomed_clip] + final_clips)
-        
-        # Videoyu kaydetme
-        final_video.write_videofile(
-            output_path, 
-            codec='libx264', 
-            fps=24, 
-            logger=None,
-            temp_audiofile='temp-audio.m4a',
-            remove_temp=True
-        )
-        return output_path
-        
-    except Exception as e:
-        print(f"MoviePy video montajında hata: {e}")
-        return None
-
-# --- 3. TELEGRAM VE GEMINI İŞLEVLERİ ---
+# --- 2. YARDIMCI İŞLEVLER ---
 
 def download_image(image_url, save_path="temp_image.png"):
     """Gemini'dan gelen URL'deki görseli indirir."""
@@ -101,40 +39,63 @@ def download_image(image_url, save_path="temp_image.png"):
         return save_path
     return None
 
+def cleanup_files(*files):
+    """İşlem bitince geçici dosyaları siler."""
+    for f in files:
+        if f and os.path.exists(f):
+            os.remove(f)
+
+# --- 3. VİDEO MONTAJ İŞLEVİ (GEÇİCİ YER TUTUCU) ---
+
+def create_final_video(image_path, script_text, title):
+    """MoviePy'den kaynaklanan hataları test etmek için geçici yer tutucu."""
+    print("--- MoviePy Geçici Olarak Atlandı ---")
+    # Video dosyası oluşturmuyoruz, sadece başarılı bir dosya yolu döndürüyoruz.
+    return "temp_video_placeholder.mp4" 
+
+# --- 4. TELEGRAM İŞLEYİCİSİ (ANA İŞ AKIŞI) ---
+
 async def generate_and_process_video(update, context, video_idea):
     """Tüm süreci yöneten ana fonksiyon."""
+    
     if not client:
         await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ HATA: Gemini API Anahtarı eksik. Lütfen Railway'de 'GEMINI_API_KEY' değişkenini ayarlayın.")
         return
         
     chat_id = update.effective_chat.id
-    
-    await context.bot.send_message(chat_id=chat_id, text=f"🤖 Fikir alındı: '{video_idea}'. Senaryo ve görsel talimatları üretiliyor...")
+    await context.bot.send_message(chat_id=chat_id, text=f"🤖 Fikir alındı: '{video_idea}'. Başlıyorum...")
 
-    temp_image_path = None
-    temp_video_path = None
+    temp_image_path, temp_video_path = None, None
 
     try:
-        # AŞAMA 1: METİN ÜRETİMİ (Senaryo, Başlık, Görsel İstek Metni)
+        # AŞAMA 1: SENARYO VE GÖRSEL TALİMATI ÜRETİMİ (Gemini)
+        await context.bot.send_message(chat_id=chat_id, text="📝 Senaryo ve görsel talimatları üretiliyor...")
+        
+        # JSON formatında çıktı isteme
         system_instruction = ("Tüm çıktılarını aşağıdaki formatta, SADECE JSON olarak ver. Ek metin EKLEME.")
         prompt = f"Video fikri: {video_idea}"
         
         response = client.chats.create(
             model=TEXT_MODEL,
-            config={"systemInstruction": system_instruction, "responseMimeType": "application/json",
-                "responseSchema": {"type": "OBJECT", "properties": {
-                    "image_prompt": {"type": "STRING", "description": "Görsel üretim modeli için detaylı, İngilizce talimat."},
-                    "script": {"type": "STRING", "description": f"{TEMP_DURATION} saniyelik Türkçe konuşma metni."},
-                    "youtube_title": {"type": "STRING", "description": "YouTube videosu için ilgi çekici Türkçe başlık."}}}
+            config={
+                "systemInstruction": system_instruction, 
+                "responseMimeType": "application/json",
+                "responseSchema": {
+                    "type": "OBJECT", "properties": {
+                        "image_prompt": {"type": "STRING", "description": "Görsel üretim modeli için detaylı, İngilizce talimat."},
+                        "script": {"type": "STRING", "description": f"{TEMP_DURATION} saniyelik Türkçe konuşma metni."},
+                        "youtube_title": {"type": "STRING", "description": "YouTube videosu için ilgi çekici Türkçe başlık."}
+                    }
+                }
             }
         ).send_message(message=prompt)
 
         data = json.loads(response.text)
         image_prompt, script, youtube_title = data["image_prompt"], data["script"], data["youtube_title"]
 
-        await context.bot.send_message(chat_id=chat_id, text=f"📸 Şimdi görseli oluşturuyorum...")
+        # AŞAMA 1.5: GÖRSEL ÜRETİMİ VE İNDİRME
+        await context.bot.send_message(chat_id=chat_id, text="📸 Görsel oluşturuluyor ve indiriliyor...")
         
-        # AŞAMA 1.5: GÖRSEL ÜRETİMİ
         image_result = client.models.generate_images(
             model=IMAGE_MODEL,
             prompt=image_prompt,
@@ -145,53 +106,54 @@ async def generate_and_process_video(update, context, video_idea):
         temp_image_path = download_image(image_url)
 
         if not temp_image_path:
-            await context.bot.send_message(chat_id=chat_id, text="❌ Hata: Üretilen görseli indiremedim.")
-            return
+            raise Exception("Görsel indirme başarısız.")
 
-        # AŞAMA 2: VİDEO MONTAJI VE ALT YAZI
-        await context.bot.send_message(chat_id=chat_id, text="🎬 Video montajı ve alt yazı ekleniyor (Bu biraz zaman alabilir)...")
+        # AŞAMA 2: VİDEO MONTAJI (MoviePy yerine geçici fonksiyon çağrıldı)
+        await context.bot.send_message(chat_id=chat_id, text="🎬 Video montajı adımı şimdilik atlanıyor...")
         
         temp_video_path = create_final_video(temp_image_path, script, youtube_title)
 
-        if not temp_video_path:
-            await context.bot.send_message(chat_id=chat_id, text="❌ Hata: Video oluşturulamadı.")
-            return
-
-        # AŞAMA 3: TELEGRAM'A GÖNDERME
-        await context.bot.send_message(chat_id=chat_id, text="✅ Video hazırlandı! Şimdi Telegram üzerinden gönderiliyor...")
+        # AŞAMA 3: TELEGRAM'A BİLDİRİM GÖNDERME
+        await context.bot.send_message(chat_id=chat_id, text="✅ Video İçeriği Hazırlandı! Telegram üzerinden sonuç bildiriliyor...")
         
-        # Videoyu Telegram'a gönder
-        with open(temp_video_path, 'rb') as video_file:
-            await context.bot.send_video(
-                chat_id=chat_id,
-                video=video_file,
-                caption=f"🎥 **{youtube_title}**\n\nVideo otomatik olarak oluşturulmuştur. İndirip YouTube'a yükleyebilirsiniz.",
-                parse_mode=telegram.constants.ParseMode.MARKDOWN
-            )
+        # Sadece Metin Gönderme (Video Dosyası yerine)
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=f"🎥 **{youtube_title}**\n\n**Senaryo:** {script[:150]}...\n\n✅ BOT BAŞARIYLA ÇALIŞIYOR. MoviePy kurulumunu çözdükten sonra video gelecektir!",
+            parse_mode=telegram.constants.ParseMode.MARKDOWN
+        )
         
+    except APIError as e:
+        await context.bot.send_message(chat_id=chat_id, text=f"❌ API Hatası (Gemini): Anahtarınızı kontrol edin. Hata: {e}")
     except Exception as e:
-        print(f"Genel İşlem Hatası: {e}")
-        await context.bot.send_message(chat_id=chat_id, text=f"❌ Proje hatası oluştu: {e}")
+        await context.bot.send_message(chat_id=chat_id, text=f"❌ Genel İşlem Hatası: {e}")
         
     finally:
-        # Temizlik: Oluşturulan dosyaları sil
-        if temp_image_path and os.path.exists(temp_image_path): os.remove(temp_image_path)
-        if temp_video_path and os.path.exists(temp_video_path): os.remove(temp_video_path)
+        # Temizlik (Sadece Görseli siliyoruz)
+        cleanup_files(temp_image_path) # temp_video_path silinmez çünkü hiç oluşmadı.
 
+
+# --- 5. ANA FONKSİYON VE BAŞLATMA ---
 
 async def start_command(update, context):
+    # Kullanıcı bilgisi hatılatması
+    teacher_response = "Ben bir yapay zekayım." 
+
     await update.message.reply_text(
-        "Merhaba! Ben Otomatik YouTube İçerik Botuyum. Lütfen bir video fikri yazın."
+        f"Merhaba! Öğretmenin sorarsa: {teacher_response}\n\nBen Otomatik YouTube İçerik Botuyum. Lütfen bir video fikri yazın."
     )
 
 async def handle_message(update, context):
     video_idea = update.message.text.strip()
+    if video_idea.startswith('/'):
+        return 
+        
     await generate_and_process_video(update, context, video_idea)
 
 
 def main():
     if not TELEGRAM_BOT_TOKEN:
-        print("HATA: TELEGRAM_BOT_TOKEN tanımlı değil.")
+        print("HATA: TELEGRAM_BOT_TOKEN ortam değişkeni tanımlı değil.")
         return
         
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
