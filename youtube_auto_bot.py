@@ -6,7 +6,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from google import genai
 from google.genai.errors import APIError
 
-# HATA KAYNAKLARINI ÇÖZDÜK: MoviePy artık aktif!
+# MoviePy artık aktif!
 from moviepy.editor import ImageClip, TextClip, CompositeVideoClip, AudioFileClip, ColorClip 
 
 # --- 1. AYARLAR VE API İSTEMCİLERİ ---
@@ -20,17 +20,15 @@ except Exception as e:
     client = None
 
 TEXT_MODEL = "gemini-2.5-flash" 
-IMAGE_MODEL = "imagen-2.0-generate-002" # Görsel üretim hala atlanıyor, bu satır sadece tanımlama amaçlıdır.
+IMAGE_MODEL = "imagen-2.0-generate-002"
 TEMP_DURATION = 20 
 
 # --- 2. YARDIMCI İŞLEVLER ---
 
 def download_image(image_url, save_path="temp_image.png"):
-    """Görsel üretim devre dışı olduğu için çağrılmaz."""
     return None
 
 def cleanup_files(*files):
-    """İşlem bitince geçici dosyaları siler."""
     for f in files:
         if f and os.path.exists(f):
             os.remove(f)
@@ -143,7 +141,6 @@ async def generate_and_process_video(update, context, video_idea):
         await context.bot.send_message(chat_id=chat_id, text=f"❌ Genel İşlem Hatası (MoviePy kurulumunu kontrol edin): {e}")
         
     finally:
-        # Geçici dosyaları temizle
         cleanup_files(temp_image_path, temp_video_path) 
 
 
