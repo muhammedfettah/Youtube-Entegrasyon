@@ -6,42 +6,32 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from google import genai
 from google.genai.errors import APIError
 
-# --- HATA RİSKİ YÜKSEK OLAN KISIM DEVRE DIŞI ---
-# MoviePy kütüphanesi, kurulum (pip install) sorunları ve FFMPEG bağımlılığı nedeniyle
-# şu an için yorum satırındadır. Çalıştığı onaylandıktan sonra bu satırı açacağız.
+# HATA KAYNAKLARI GEÇİCİ OLARAK DEVRE DIŞI BIRAKILDI:
+# 1. MoviePy kütüphanesi (Kurulum sorunları nedeniyle)
 # from moviepy.editor import ImageClip, TextClip, CompositeVideoClip, AudioFileClip, ColorClip 
 
 # --- 1. AYARLAR VE API İSTEMCİLERİ ---
 
-# Railway'deki Environment Variables'dan okunur
+# Ortam değişkenlerinden okunur
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN") 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") 
-
-if not TELEGRAM_BOT_TOKEN or not GEMINI_API_KEY:
-    # Bu uyarı, Railway'de görünmez, sadece lokalde görünür.
-    print("HATA: TELEGRAM_BOT_TOKEN veya GEMINI_API_KEY ortam değişkenlerinden okunmadı.")
 
 try:
     client = genai.Client(api_key=GEMINI_API_KEY)
 except Exception as e:
-    # API anahtarı geçersizse burası çalışır.
-    print(f"Gemini Client başlatma hatası: {e}")
     client = None
 
 TEXT_MODEL = "gemini-2.5-flash" 
-# HATA DÜZELTMESİ: Stabil ve erişilebilir model
+# HATA NEDENİYLE GÖRSEL MODEL TANIMI GEREKSİZ, ancak kodu sade bırakmak için tutulabilir.
 IMAGE_MODEL = "imagen-2.0-generate-002" 
 TEMP_DURATION = 20 
 
 # --- 2. YARDIMCI İŞLEVLER ---
 
+# Görsel üretim devre dışı olduğu için indirme ve temizlik fonksiyonları basitleştirildi.
+
 def download_image(image_url, save_path="temp_image.png"):
-    """Gemini'dan gelen URL'deki görseli indirir."""
-    response = requests.get(image_url)
-    if response.status_code == 200:
-        with open(save_path, 'wb') as f:
-            f.write(response.content)
-        return save_path
+    """Görsel üretim devre dışı olduğu için bu fonksiyon çağrılmayacak."""
     return None
 
 def cleanup_files(*files):
@@ -51,19 +41,17 @@ def cleanup_files(*files):
             os.remove(f)
 
 # --- 3. VİDEO MONTAJ İŞLEVİ (GEÇİCİ YER TUTUCU) ---
-# MoviePy kodu devre dışı olduğu için bu fonksiyon sadece yer tutar.
 def create_final_video(image_path, script_text, title):
-    """MoviePy'den kaynaklanan hataları test etmek için geçici yer tutucu."""
-    print("--- MoviePy Geçici Olarak Atlandı ---")
+    """MoviePy kodu devre dışı olduğu için yer tutucudur."""
+    print("--- MoviePy ve Görsel Üretim Atlandı ---")
     return "temp_video_placeholder.mp4" 
 
 # --- 4. TELEGRAM İŞLEYİCİSİ (ANA İŞ AKIŞI) ---
 
 async def generate_and_process_video(update, context, video_idea):
-    """Tüm süreci yöneten ana fonksiyon."""
     
     if not client:
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ HATA: Gemini API Anahtarı eksik veya geçersiz.")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ HATA: Gemini API Anahtarı eksik veya geçersiz. Lütfen kontrol edin.")
         return
         
     chat_id = update.effective_chat.id
@@ -93,7 +81,7 @@ async def generate_and_process_video(update, context, video_idea):
             }
         ).send_message(message=prompt)
 
-        # HATA KORUMASI: Gemini'den boş (None) cevap gelmesi durumunda botun çökmesini engeller.
+        # HATA KORUMASI: Boş (None) cevap gelmesi durumunda botun çökmesini engeller.
         if not response.text:
             await context.bot.send_message(chat_id=chat_id, text="❌ Gemini'dan boş veya engellenmiş cevap geldi. Lütfen daha genel ve güvenli bir fikir deneyin.")
             return
@@ -101,20 +89,9 @@ async def generate_and_process_video(update, context, video_idea):
         data = json.loads(response.text)
         image_prompt, script, youtube_title = data["image_prompt"], data["script"], data["youtube_title"]
 
-        # AŞAMA 1.5: GÖRSEL ÜRETİMİ VE İNDİRME
-        await context.bot.send_message(chat_id=chat_id, text="📸 Görsel oluşturuluyor ve indiriliyor...")
-        
-        image_result = client.models.generate_images(
-            model=IMAGE_MODEL,
-            prompt=image_prompt,
-            config=dict(number_of_images=1, aspect_ratio="16:9")
-        )
-        
-        image_url = image_result.generated_images[0].image.url
-        temp_image_path = download_image(image_url)
-
-        if not temp_image_path:
-            raise Exception("Görsel indirme başarısız.")
+        # AŞAMA 1.5: GÖRSEL ÜRETİMİ VE İNDİRME - TAMAMEN ATLANDI!
+        await context.bot.send_message(chat_id=chat_id, text="🚫 Görsel oluşturma adımı (Hata kaynağı) ATLANDI.")
+        temp_image_path = None # Görsel üretilmedi
 
         # AŞAMA 2: VİDEO MONTAJI (Atlanıyor)
         await context.bot.send_message(chat_id=chat_id, text="🎬 Video montajı adımı şimdilik atlanıyor...")
@@ -126,7 +103,7 @@ async def generate_and_process_video(update, context, video_idea):
         # Sadece Metin Gönderme
         await context.bot.send_message(
             chat_id=chat_id,
-            text=f"🎥 **{youtube_title}**\n\n**Senaryo:** {script[:150]}...\n\n✅ BOT ŞU AN ÇALIŞIYOR. Lütfen güvenli ve yaratıcı bir fikirle deneyin.",
+            text=f"🎥 **{youtube_title}**\n\n**Senaryo:** {script[:300]}...\n\n✅ BOT BAŞARIYLA ÇALIŞIYOR. Metin Üretimi Tamamlandı!",
             parse_mode=telegram.constants.ParseMode.MARKDOWN
         )
         
