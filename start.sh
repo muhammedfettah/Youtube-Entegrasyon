@@ -1,1 +1,3 @@
-pip install -r requirements.txt && python youtube_auto_bot.py
+#!/bin/bash
+pip install -r requirements.txt
+python movie_info_bot.py
