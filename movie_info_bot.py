@@ -16,7 +16,7 @@ except Exception as e:
     client = None
 
 TEXT_MODEL = "gemini-2.5-flash" 
-IMAGE_MODEL = "imagen-2.0-generate-002" 
+IMAGE_MODEL = "imagen-3.0-generate-002" 
 
 # --- 2. YARDIMCI İŞLEVLER ---
 
@@ -141,3 +141,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
