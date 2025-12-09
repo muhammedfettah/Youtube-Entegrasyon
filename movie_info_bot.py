@@ -26,21 +26,21 @@ def cleanup_files(*files):
 
 # --- 3. TELEGRAM İŞLEYİCİSİ (ANA İŞ AKIŞI) ---
 
-async def generate_and_process_movie_info(update, context, movie_title):
+async def generate_and_process_movie_info(update, context, search_query):
     
     if not client:
         await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ HATA: Gemini API Anahtarı eksik veya geçersiz.")
         return
         
     chat_id = update.effective_chat.id
-    await context.bot.send_message(chat_id=chat_id, text=f"🎬 Film/Dizi Bilgisi alınıyor: '{movie_title}'. Başlıyorum...")
+    await context.bot.send_message(chat_id=chat_id, text=f"🎬 Film/Dizi Bilgisi alınıyor: '{search_query}'. Başlıyorum...")
 
     try:
-        # AŞAMA 1: FİLM BİLGİSİ ÜRETİMİ (Tarihler)
-        await context.bot.send_message(chat_id=chat_id, text="📝 Tarih ve poster bilgisi Gemini'dan sorgulanıyor...")
+        # AŞAMA 1: FİLM BİLGİSİ ÜRETİMİ (Tarihler ve Özet)
+        await context.bot.send_message(chat_id=chat_id, text="📝 Bilgiler (Özet, Tarih, Poster) Gemini'dan sorgulanıyor...")
         
         system_instruction = ("Tüm çıktılarını aşağıdaki formatta, SADECE JSON olarak ver. Ek metin EKLEME. Filmin posteri için görsel talimatı oluştur.")
-        prompt = f"Şu film/dizi için başlangıç ve bitiş tarihlerini ve poster görseli için İngilizce bir talimat hazırla: {movie_title}"
+        prompt = f"Şu film/dizi için Türkçe özet, başlangıç ve bitiş tarihlerini ve poster görseli için İngilizce bir talimat hazırla: {search_query}"
         
         response = client.chats.create(
             model=TEXT_MODEL,
@@ -49,8 +49,10 @@ async def generate_and_process_movie_info(update, context, movie_title):
                 "responseMimeType": "application/json",
                 "responseSchema": {
                     "type": "OBJECT", "properties": {
-                        "image_prompt": {"type": "STRING", "description": "Filmin temasını ve ana karakterini gösteren film posteri tarzında, İngilizce görsel talimatı."},
-                        "start_date": {"type": "STRING", "description": "Filmin/dizinin başlangıç tarihi (Örn: 2023-11-01 veya sadece 2023)."},
+                        "movie_title": {"type": "STRING", "description": "Sorgulanan filmin/dizinin resmi adı."},
+                        "summary": {"type": "STRING", "description": "Filmin/dizinin kısa Türkçe özeti."},
+                        "image_prompt": {"type": "STRING", "description": "Filmin posteri tarzında, İngilizce görsel talimatı."},
+                        "start_date": {"type": "STRING", "description": "Filmin/dizinin başlangıç tarihi (Örn: 2023 veya 2023-11-01)."},
                         "end_date": {"type": "STRING", "description": "Filmin/dizinin bitiş tarihi (Devam ediyorsa 'Hala devam ediyor' yaz)."}
                     }
                 }
@@ -62,7 +64,7 @@ async def generate_and_process_movie_info(update, context, movie_title):
             return
 
         data = json.loads(response.text)
-        image_prompt, start_date, end_date = data["image_prompt"], data["start_date"], data["end_date"]
+        movie_title, summary, image_prompt, start_date, end_date = data["movie_title"], data["summary"], data["image_prompt"], data["start_date"], data["end_date"]
 
         # AŞAMA 2: POSTER GÖRSELİ ÜRETİMİ (Sadece URL Alınıyor)
         await context.bot.send_message(chat_id=chat_id, text="📸 Poster görseli URL'si oluşturuluyor...")
@@ -70,16 +72,16 @@ async def generate_and_process_movie_info(update, context, movie_title):
         image_result = client.models.generate_images( 
             model=IMAGE_MODEL,
             prompt=image_prompt,
-            config=dict(number_of_images=1, aspect_ratio="2:3") # Film posteri için dikey oran (2:3)
+            config=dict(number_of_images=1, aspect_ratio="2:3")
         )
         
-        # Sadece görselin URL'sini alıyoruz, indirme yok!
         poster_url = image_result.generated_images[0].image.url 
         
         # AŞAMA 3: TELEGRAM'A BİLGİ VE BUTON GÖNDERME
         
         caption_text = (
             f"🎬 **{movie_title}**\n\n"
+            f"**Özet:** {summary}\n\n"
             f"**Başlangıç Tarihi:** {start_date}\n"
             f"**Bitiş Tarihi:** {end_date}\n\n"
             "✅ Bilgi Başarıyla Üretildi!"
@@ -112,7 +114,6 @@ async def generate_and_process_movie_info(update, context, movie_title):
 # --- 4. ANA FONKSİYON VE BAŞLATMA ---
 
 async def start_command(update, context):
-    # Kullanıcı tarafından istenen özelleştirilmiş cevap
     teacher_response = "Ben bir yapay zekayım." 
 
     await update.message.reply_text(
@@ -120,11 +121,11 @@ async def start_command(update, context):
     )
 
 async def handle_message(update, context):
-    movie_title = update.message.text.strip()
-    if movie_title.startswith('/'):
+    search_query = update.message.text.strip()
+    if search_query.startswith('/'):
         return 
         
-    await generate_and_process_movie_info(update, context, movie_title)
+    await generate_and_process_movie_info(update, context, search_query)
 
 
 def main():
